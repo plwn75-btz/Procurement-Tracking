@@ -1,0 +1,12 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Excel temporary lock files
+~$*.xlsx
+~$*.xls
+
+# OS generated files
+.DS_Store
+Thumbs.db
