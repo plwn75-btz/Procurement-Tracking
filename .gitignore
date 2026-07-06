@@ -10,3 +10,22 @@ __pycache__/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# PowerBI local solution (not needed for web dashboard)
+PowerBI_Solution/
+
+# Test & analysis scripts (dev-only, not needed on Render)
+test_*.py
+analyze_data.py
+read_headers.py
+trial_test.py
+
+# Virtual environments
+venv/
+.env

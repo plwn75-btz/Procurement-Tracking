@@ -118,6 +118,122 @@ def col_to_idx(col_str):
     return result
 
 
+def normalize_header(text):
+    """Normalize header text for comparison: lowercase, strip, collapse whitespace/newlines."""
+    if text is None:
+        return ""
+    s = str(text).replace('\n', ' ').replace('\r', ' ')
+    return ' '.join(s.strip().split()).lower()
+
+
+def _match_stage_column(stage_name, col_map):
+    """Find the column letter for a stage by matching its name against header texts.
+
+    Matching priority:
+      1. Exact match (after normalization)
+      2. Containment: stage name is a substring of the header
+      3. Word overlap: >= 3 shared words (handles abbreviation changes)
+    Returns the column letter or None if no match is found.
+    """
+    norm = normalize_header(stage_name)
+
+    # 1. Exact match
+    if norm in col_map:
+        return col_map[norm]
+
+    # 2. Containment: stage name found within header text
+    for header, col in col_map.items():
+        if norm in header:
+            return col
+
+    # 3. Word overlap (>= 3 shared words to avoid false positives like
+    #    "MR IFA Issued" matching "MR Issued")
+    stage_words = set(norm.split())
+    best_col = None
+    best_overlap = 0
+    for header, col in col_map.items():
+        header_words = set(header.split())
+        overlap = len(stage_words & header_words)
+        if overlap >= 3 and overlap > best_overlap:
+            best_overlap = overlap
+            best_col = col
+
+    return best_col
+
+
+def auto_detect_columns(ws, base_config):
+    """Auto-detect column positions by scanning the header row.
+
+    Handles column insertions, deletions, and renames between file revisions.
+    Works reliably after Git clone or Render deploy where file metadata is lost.
+    Falls back to the hardcoded base_config values if detection fails.
+    """
+    header_row = base_config["header_row"]
+
+    # Build normalized-header → column-letter map (skip date-valued cells)
+    col_map = {}
+    for c in range(1, ws.max_column + 1):
+        v = ws.cell(row=header_row, column=c).value
+        if v is None or isinstance(v, (datetime.datetime, datetime.date)):
+            continue
+        norm = normalize_header(v)
+        if norm:
+            col_map[norm] = get_column_letter(c)
+
+    config = dict(base_config)
+
+    # --- P/F/A column ---
+    if "p/f/a" in col_map:
+        config["pfa_col"] = col_map["p/f/a"]
+    else:
+        # P/F/A header may be missing (e.g. ASK) — scan first data rows for known values
+        pfa_keys = set(base_config["pfa_values"].keys())
+        for c in range(1, ws.max_column + 1):
+            hits = sum(
+                1 for r in range(base_config["data_start_row"],
+                                 min(base_config["data_start_row"] + 9, ws.max_row + 1))
+                if str(ws.cell(row=r, column=c).value or "").strip() in pfa_keys
+            )
+            if hits >= 3:
+                config["pfa_col"] = get_column_letter(c)
+                break
+
+    # --- Metadata columns ---
+    META_PATTERNS = {
+        "item_no_col":      ["no.", "no"],
+        "package_name_col": ["package name"],
+        "rfq_no_col":       ["rfq no.", "rfq no"],
+        "mr_no_col":        ["mr no.", "mr no"],
+        "priority_col":     ["priority level", "priority"],
+        "lli_col":          ["lli (y/n)", "long lead item (y/n)", "lli", "long lead item"],
+    }
+    for key, patterns in META_PATTERNS.items():
+        if base_config.get(key) is None:
+            continue
+        for p in patterns:
+            if p in col_map:
+                config[key] = col_map[p]
+                break
+
+    # --- Stage columns ---
+    new_stages = []
+    for stage in base_config["stages"]:
+        col = _match_stage_column(stage["name"], col_map)
+        if col:
+            new_stages.append({"name": stage["name"], "col": col})
+        # If no match → stage was removed in this file version → skip it
+
+    if new_stages:
+        config["stages"] = new_stages
+
+    # Log detected layout
+    print(f"    [Auto-Detect] P/F/A col: {config['pfa_col']}  |  "
+          f"Stages found: {len(config['stages'])}/{len(base_config['stages'])}")
+
+    return config
+
+
+
 def safe_date(value):
     """Extract a date from a cell value. Returns ISO string or None."""
     if value is None:
@@ -130,11 +246,30 @@ def safe_date(value):
 
 
 def get_file_sort_key(filepath):
-    """Sort key that extracts YYYYMMDD date from filename to survive Git checkout timestamps."""
+    """Sort key for selecting the latest Excel file.
+
+    Designed to work reliably across local dev, Git clones, and Render deploys
+    where st_mtime is reset on checkout/deploy and cannot be trusted.
+
+    Priority order (highest wins):
+      1. has_date_suffix  — files with YYYYMMDD in the name always beat those without
+      2. date_val         — the extracted YYYYMMDD integer (larger = newer)
+      3. st_mtime         — tie-breaker for files with identical date suffix
+      4. name length/name — deterministic last-resort tie-breaker
+    """
     name = filepath.name
+    # Try strict YYYYMMDD first, then flexible separators (2026-07-03, 2026_07_03, etc.)
     m = re.search(r'(20\d{6})', name)
-    date_val = int(m.group(1)) if m else 0
-    return (date_val, filepath.stat().st_mtime, len(name), name)
+    if not m:
+        m = re.search(r'(20\d{2}[-_.]?\d{2}[-_.]?\d{2})', name)
+    if m:
+        has_date_suffix = 1          # rank above undated files
+        date_str = re.sub(r'[^0-9]', '', m.group(0))
+        date_val = int(date_str)
+    else:
+        has_date_suffix = 0          # undated file — only chosen when no dated file exists
+        date_val = 0                 # don't use mtime as date — unreliable after git clone / deploy
+    return (has_date_suffix, date_val, filepath.stat().st_mtime, len(name), name)
 
 
 def find_excel_files():
@@ -175,6 +310,10 @@ def extract_file_data(filepath, config):
             return {"error": f"Sheet '{config['sheet_name']}' not found. Available: {wb.sheetnames}"}
 
     ws = wb[config["sheet_name"]]
+
+    # Auto-detect column layout from header row
+    config = auto_detect_columns(ws, config)
+
     pfa_col_idx = col_to_idx(config["pfa_col"])
     pkg_col_idx = col_to_idx(config["package_name_col"])
     rfq_col_idx = col_to_idx(config["rfq_no_col"])
