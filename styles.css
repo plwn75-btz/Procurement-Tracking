@@ -438,6 +438,7 @@ body::before {
 .data-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
 }
 
 .data-table thead th {
@@ -451,11 +452,17 @@ body::before {
     border-bottom: 1px solid var(--border-glass);
     background: rgba(0, 0, 0, 0.15);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     position: sticky;
     top: 0;
     cursor: pointer;
     user-select: none;
     transition: color var(--transition-fast);
+}
+
+.data-table thead th:last-child {
+    text-align: right;
 }
 
 .data-table thead th:hover {
@@ -485,6 +492,12 @@ body::before {
     font-size: 13px;
     color: var(--text-secondary);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.data-table tbody td:last-child {
+    text-align: right;
 }
 
 .data-table tbody td:first-child {

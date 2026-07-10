@@ -35,7 +35,11 @@ Z1F_CONFIG = {
     "header_row": 10,
     "data_start_row": 13,
     "pfa_col": "M",          # P/F/A indicator
-    "pfa_values": {"P": "Plan", "F": "Forecast", "A": "Actual"},
+    "pfa_values": {
+        "P": "Plan", "PLAN": "Plan",
+        "F": "Forecast", "FORECAST": "Forecast",
+        "A": "Actual", "ACTUAL": "Actual"
+    },
     "package_name_col": "D",
     "rfq_no_col": "C",
     "mr_no_col": "B",
@@ -43,27 +47,30 @@ Z1F_CONFIG = {
     "priority_col": "K",
     "lli_col": "I",
     "stages": [
-        {"name": "Bidder List Approval",     "col": "N"},
-        {"name": "MR Issued (IFR)",          "col": "O"},
-        {"name": "MR Approved",              "col": "P"},
-        {"name": "RFQ Issued",               "col": "Q"},
-        {"name": "RFQ Approved",             "col": "R"},
-        {"name": "Bid Closing Date",         "col": "S"},
-        {"name": "TBE Issued",               "col": "T"},
-        {"name": "TBE Approved",             "col": "V"},
-        {"name": "PO Issued",                "col": "W"},
-        {"name": "Vendor Acknowledgement",   "col": "X"},
-        {"name": "KOM",                      "col": "Y"},
-        {"name": "VDB Submission",           "col": "Z"},
-        {"name": "Approval of Key VP",       "col": "AA"},
-        {"name": "Main Material Arrived",    "col": "AB"},
-        {"name": "PIM",                      "col": "AC"},
-        {"name": "Start Production",         "col": "AD"},
-        {"name": "FAT",                      "col": "AE"},
-        {"name": "Ready for Shipment",       "col": "AF"},
-        {"name": "Receipt at Worksite",      "col": "AG"},
-        {"name": "Punch List Clearance",     "col": "AH"},
-        {"name": "Final Documentation",      "col": "AI"},
+        {"name": "Bidder List Approval",       "col": "N"},
+        {"name": "MR IFA Issued",              "col": "O"},
+        {"name": "MR IFA Approved",            "col": None},
+        {"name": "MR Issued",                  "col": None},
+        {"name": "MR Approved",                "col": "P"},
+        {"name": "RFQ Issued",                 "col": "Q"},
+        {"name": "RFQ Approved",               "col": "R"},
+        {"name": "CFT Issuance",               "col": None},
+        {"name": "Bid Closing Date",           "col": "S"},
+        {"name": "TBE Issued",                 "col": "T"},
+        {"name": "TBE Approved",               "col": "V"},
+        {"name": "PO Issued",                  "col": "W"},
+        {"name": "Vendor Acknowledgement",     "col": "X"},
+        {"name": "KOM",                        "col": "Y"},
+        {"name": "VD Submission",              "col": "Z"},
+        {"name": "Approval of Key VD",         "col": "AA"},
+        {"name": "Delivery of Major Materials","col": "AB"},
+        {"name": "PIM",                        "col": "AC"},
+        {"name": "Start Production",           "col": "AD"},
+        {"name": "FAT",                        "col": "AE"},
+        {"name": "Ready for Shipment",         "col": "AF"},
+        {"name": "Receipt at Worksite",        "col": "AG"},
+        {"name": "Punch List Clearance",       "col": "AH"},
+        {"name": "Final Documentation",        "col": "AI"},
     ],
 }
 
@@ -74,7 +81,11 @@ ASK_CONFIG = {
     "header_row": 16,
     "data_start_row": 19,
     "pfa_col": "P",          # Plan/Forecast/Actual indicator
-    "pfa_values": {"Plan": "Plan", "Forecast": "Forecast", "Actual": "Actual"},
+    "pfa_values": {
+        "P": "Plan", "PLAN": "Plan",
+        "F": "Forecast", "FORECAST": "Forecast",
+        "A": "Actual", "ACTUAL": "Actual"
+    },
     "package_name_col": "C",
     "rfq_no_col": "B",
     "mr_no_col": None,
@@ -112,6 +123,8 @@ ASK_CONFIG = {
 
 def col_to_idx(col_str):
     """Convert Excel column letter(s) to 1-based index."""
+    if not col_str:
+        return None
     result = 0
     for char in col_str.upper():
         result = result * 26 + (ord(char) - ord('A') + 1)
@@ -140,6 +153,21 @@ def _match_stage_column(stage_name, col_map):
     # 1. Exact match
     if norm in col_map:
         return col_map[norm]
+
+    # 1b. Check aliases for Z1F / ASK template differences
+    ALIASES = {
+        "mr ifa issued": ["mr issued (ifr)", "mr issued"],
+        "vd submission": ["vdb submission"],
+        "approval of key vd": ["approval of key vp"],
+        "delivery of major materials": ["main material arrived"],
+    }
+    if norm in ALIASES:
+        for alias in ALIASES[norm]:
+            if alias in col_map:
+                return col_map[alias]
+            for header, col in col_map.items():
+                if alias in header:
+                    return col
 
     # 2. Containment: stage name found within header text
     for header, col in col_map.items():
@@ -192,7 +220,7 @@ def auto_detect_columns(ws, base_config):
             hits = sum(
                 1 for r in range(base_config["data_start_row"],
                                  min(base_config["data_start_row"] + 9, ws.max_row + 1))
-                if str(ws.cell(row=r, column=c).value or "").strip() in pfa_keys
+                if str(ws.cell(row=r, column=c).value or "").strip().upper() in pfa_keys
             )
             if hits >= 3:
                 config["pfa_col"] = get_column_letter(c)
@@ -218,10 +246,14 @@ def auto_detect_columns(ws, base_config):
     # --- Stage columns ---
     new_stages = []
     for stage in base_config["stages"]:
-        col = _match_stage_column(stage["name"], col_map)
-        if col:
-            new_stages.append({"name": stage["name"], "col": col})
-        # If no match → stage was removed in this file version → skip it
+        if stage["col"] is None:
+            new_stages.append({"name": stage["name"], "col": None})
+        else:
+            col = _match_stage_column(stage["name"], col_map)
+            if col:
+                new_stages.append({"name": stage["name"], "col": col})
+            else:
+                new_stages.append({"name": stage["name"], "col": stage["col"]})
 
     if new_stages:
         config["stages"] = new_stages
@@ -238,9 +270,9 @@ def safe_date(value):
     """Extract a date from a cell value. Returns ISO string or None."""
     if value is None:
         return None
-    if isinstance(value, datetime.datetime):
-        return value.strftime("%Y-%m-%d")
-    if isinstance(value, datetime.date):
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        if value.year < 2020:
+            return None
         return value.strftime("%Y-%m-%d")
     return None
 
@@ -328,53 +360,60 @@ def extract_file_data(filepath, config):
     row = config["data_start_row"]
 
     while row <= ws.max_row:
-        # Check if this row has a valid P/F/A value
+        # Check if this row is the start of a package (a Plan row)
         pfa_val = ws.cell(row=row, column=pfa_col_idx).value
         if pfa_val is None:
             row += 1
             continue
 
-        pfa_str = str(pfa_val).strip()
-        if pfa_str not in config["pfa_values"]:
+        pfa_str = str(pfa_val).strip().upper()
+        mapped_val = config["pfa_values"].get(pfa_str)
+        if mapped_val != "Plan":
             row += 1
             continue
 
-        # Found a Plan row — read the group of 3 rows
-        # Determine which row is Plan, Forecast, Actual
-        plan_row = None
+        # Found the start of a package group at `row`
+        plan_row = row
+        
+        # Scan forward to find where this package group ends (at the NEXT Plan row or end of sheet)
+        group_rows = [plan_row]
+        next_row = plan_row + 1
+        while next_row <= ws.max_row:
+            next_pfa_val = ws.cell(row=next_row, column=pfa_col_idx).value
+            if next_pfa_val is not None:
+                next_pfa_str = str(next_pfa_val).strip().upper()
+                if config["pfa_values"].get(next_pfa_str) == "Plan":
+                    # Reached the next package's Plan row!
+                    break
+            group_rows.append(next_row)
+            next_row += 1
+
+        # Identify forecast_row and actual_row within this group
         forecast_row = None
         actual_row = None
-
-        # Look at current and next 2 rows to find the group
-        for r in range(row, min(row + 3, ws.max_row + 1)):
+        for r in group_rows:
             val = ws.cell(row=r, column=pfa_col_idx).value
             if val is None:
                 continue
-            val_str = str(val).strip()
+            val_str = str(val).strip().upper()
             mapped = config["pfa_values"].get(val_str)
-            if mapped == "Plan":
-                plan_row = r
-            elif mapped == "Forecast":
+            if mapped == "Forecast":
                 forecast_row = r
             elif mapped == "Actual":
                 actual_row = r
 
-        if plan_row is None:
-            row += 1
-            continue
-
-        # Extract package info from the Plan row (or first available)
+        # Extract package info from the Plan row (or first available row with package name in group)
         info_row = plan_row
         package_name = ws.cell(row=info_row, column=pkg_col_idx).value
         if package_name is None:
-            # Try forecast row
-            if forecast_row:
-                package_name = ws.cell(row=forecast_row, column=pkg_col_idx).value
-            if package_name is None and actual_row:
-                package_name = ws.cell(row=actual_row, column=pkg_col_idx).value
+            for r in group_rows:
+                package_name = ws.cell(row=r, column=pkg_col_idx).value
+                if package_name is not None:
+                    info_row = r
+                    break
 
         if package_name is None:
-            row += 3
+            row = next_row
             continue
 
         rfq_no = ws.cell(row=info_row, column=rfq_col_idx).value or ""
@@ -388,11 +427,15 @@ def extract_file_data(filepath, config):
         # Extract stage dates
         stages = []
         for stage_name, stage_col in stage_col_indices:
-            plan_date = safe_date(ws.cell(row=plan_row, column=stage_col).value) if plan_row else None
-            forecast_date = safe_date(ws.cell(row=forecast_row, column=stage_col).value) if forecast_row else None
-            actual_date = safe_date(ws.cell(row=actual_row, column=stage_col).value) if actual_row else None
+            if stage_col:
+                plan_date = safe_date(ws.cell(row=plan_row, column=stage_col).value) if plan_row else None
+                forecast_date = safe_date(ws.cell(row=forecast_row, column=stage_col).value) if forecast_row else None
+                actual_date = safe_date(ws.cell(row=actual_row, column=stage_col).value) if actual_row else None
+            else:
+                plan_date = None
+                forecast_date = None
+                actual_date = None
 
-            # Skip stages where all 3 dates are None
             stages.append({
                 "name": stage_name,
                 "plan": plan_date,
@@ -410,9 +453,8 @@ def extract_file_data(filepath, config):
             "stages": stages,
         })
 
-        # Move past this 3-row group
-        max_row_used = max(filter(None, [plan_row, forecast_row, actual_row]))
-        row = max_row_used + 1
+        # Move to the next package group
+        row = next_row
 
     wb.close()
     return packages

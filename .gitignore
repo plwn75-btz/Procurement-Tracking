@@ -25,6 +25,11 @@ test_*.py
 analyze_data.py
 read_headers.py
 trial_test.py
+dev_scripts/
+
+# Screenshot snapshots (local debug tool, not needed on Render)
+snapshots/
+*.png
 
 # Virtual environments
 venv/

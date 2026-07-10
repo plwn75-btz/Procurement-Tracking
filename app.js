@@ -49,6 +49,13 @@ async function loadData() {
         const resp = await fetch('/api/data');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         appState.data = await resp.json();
+        const urlProj = new URLSearchParams(window.location.search).get('project');
+        if (urlProj && ['ALL', 'Z1F', 'ASK'].includes(urlProj.toUpperCase())) {
+            appState.activeProject = urlProj.toUpperCase();
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.project === appState.activeProject);
+            });
+        }
         renderDashboard();
         showToast('Data loaded successfully', 'success');
     } catch (err) {
@@ -289,7 +296,7 @@ function renderTable(packages) {
 
     if (packages.length === 0) {
         tbody.innerHTML = `
-            <tr><td colspan="8">
+            <tr><td colspan="7">
                 <div class="empty-state">
                     <div class="empty-icon">📋</div>
                     <div class="empty-title">No packages found</div>
@@ -328,12 +335,11 @@ function renderTable(packages) {
             <td>${escHtml(pkg.rfq_no)}</td>
             <td><span class="status-badge ${s.overallStatus}"><span class="status-dot"></span>${statusLabel(s.overallStatus)}</span></td>
             <td>${escHtml(s.currentStage)}</td>
-            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;" title="${escHtml(delayText)}">${escHtml(delayText)}</td>
-            <td>${s.maxDelay > 0 ? `<span class="delay-value negative">${s.maxDelay}d</span>` : '<span class="delay-value zero">0d</span>'}</td>
-            <td><span style="font-size:11px; color: var(--text-dim);">${pkg.project}</span></td>
+            <td title="${escHtml(delayText)}">${escHtml(delayText)}</td>
+            <td>${s.maxDelay > 0 ? `<span class="delay-value negative">${s.maxDelay}d</span>` : '<span class="delay-value zero">—</span>'}</td>
         </tr>
         <tr class="detail-row ${isExpanded ? 'expanded' : ''}" id="detail-${css_safe(pkg.rfq_no + pkg.project)}">
-            <td colspan="8">
+            <td colspan="7">
                 <div class="detail-content">
                     ${renderDetailContent(pkg)}
                 </div>

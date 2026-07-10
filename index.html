@@ -114,16 +114,24 @@
             </div>
             <div class="table-scroll">
                 <table class="data-table" id="data-table">
+                    <colgroup>
+                        <col style="width: 36px;">
+                        <col style="width: 30%;">
+                        <col style="width: 130px;">
+                        <col style="width: 110px;">
+                        <col style="width: 160px;">
+                        <col style="min-width: 0; width: auto;">
+                        <col style="width: 100px;">
+                    </colgroup>
                     <thead>
                         <tr>
-                            <th style="width: 30px;"></th>
+                            <th></th>
                             <th onclick="sortBy('name')">Package Name</th>
                             <th>RFQ No.</th>
                             <th onclick="sortBy('status')">Status</th>
                             <th>Current Stage</th>
                             <th>Delayed Stages</th>
-                            <th onclick="sortBy('delay')">Max Delay</th>
-                            <th>Project</th>
+                            <th onclick="sortBy('delay')" style="text-align: right;">Max Delay</th>
                         </tr>
                     </thead>
                     <tbody id="table-body">
