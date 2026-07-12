@@ -577,8 +577,12 @@ function renderLastUpdated() {
         const ask = appState.data.projects.ASK?.filename || '—';
         const z1fEl = document.getElementById('src-z1f');
         const askEl = document.getElementById('src-ask');
+        const modalZ1f = document.getElementById('modal-z1f-file');
+        const modalAsk = document.getElementById('modal-ask-file');
         if (z1fEl) z1fEl.textContent = z1f;
         if (askEl) askEl.textContent = ask;
+        if (modalZ1f) modalZ1f.textContent = z1f;
+        if (modalAsk) modalAsk.textContent = ask;
     }
 }
 
@@ -589,6 +593,125 @@ function updateDateDisplay() {
     const lookaheadEl = document.getElementById('display-lookahead');
     if (todayEl) todayEl.textContent = formatDate(getToday());
     if (lookaheadEl) lookaheadEl.textContent = formatDate(getLookaheadEnd());
+}
+
+// ─── Upload Center Modal & Drag & Drop ──────────────────────────────────────
+
+function openUploadModal() {
+    const overlay = document.getElementById('upload-modal-overlay');
+    if (overlay) overlay.classList.add('open');
+    setupDragAndDrop();
+}
+
+function closeUploadModal() {
+    const overlay = document.getElementById('upload-modal-overlay');
+    if (overlay) overlay.classList.remove('open');
+}
+
+function closeModalOnOverlay(e) {
+    if (e.target.id === 'upload-modal-overlay') {
+        closeUploadModal();
+    }
+}
+
+function setupDragAndDrop() {
+    const dropZone = document.getElementById('drop-zone');
+    if (!dropZone || dropZone.dataset.initialized) return;
+    dropZone.dataset.initialized = 'true';
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files && files.length > 0) {
+            handleDroppedFiles(files);
+        }
+    }, false);
+}
+
+function handleDroppedFiles(files) {
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        let projectType = '';
+        const nameUpper = file.name.toUpperCase();
+        if (nameUpper.includes('Z1F') || nameUpper.includes('TOPSIDE') || nameUpper.includes('JACKET')) {
+            projectType = 'Z1F';
+        } else if (nameUpper.includes('ASK') || nameUpper.includes('PIPELINE') || nameUpper.includes('OVERALL')) {
+            projectType = 'ASK';
+        } else {
+            showToast('Could not auto-detect Z1F or ASK from filename. Please use Upload Specific File card.', 'error');
+            continue;
+        }
+        uploadFile(file, projectType);
+    }
+}
+
+function handleGlobalFileInput(e) {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+        handleDroppedFiles(files);
+        e.target.value = '';
+    }
+}
+
+function handleSpecificFileInput(e, projectType) {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+        uploadFile(files[0], projectType);
+        e.target.value = '';
+    }
+}
+
+async function uploadFile(file, projectType) {
+    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xlsm')) {
+        showToast('Only .xlsx and .xlsm files are supported', 'error');
+        return;
+    }
+
+    showToast(`Uploading ${projectType} file: ${file.name}...`, 'success');
+    showLoading(true);
+
+    try {
+        const formData = new FormData();
+        formData.append('project', projectType);
+        formData.append('file', file, file.name);
+
+        const resp = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!resp.ok) {
+            const errJson = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+            throw new Error(errJson.error || `HTTP ${resp.status}`);
+        }
+
+        const result = await resp.json();
+        appState.data = result.data;
+        renderDashboard();
+        showToast(`Successfully uploaded ${result.filename}`, 'success');
+    } catch (err) {
+        console.error('Upload failed:', err);
+        showToast(`Failed to upload: ${err.message}`, 'error');
+    } finally {
+        showLoading(false);
+    }
 }
 
 // ─── Initialize ─────────────────────────────────────────────────────────────

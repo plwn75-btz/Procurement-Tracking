@@ -531,6 +531,128 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
+    def do_POST(self):
+        if self.path.startswith("/api/upload"):
+            self.send_api_upload()
+        else:
+            self.send_error(404, "Not Found")
+
+    def send_api_upload(self):
+        """Handle weekly Excel file upload with dynamic YYYYMMDD naming."""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length <= 0 or content_length > 50 * 1024 * 1024:
+                raise ValueError("Invalid content length (max 50MB)")
+
+            body = self.rfile.read(content_length)
+            content_type = self.headers.get("Content-Type", "")
+
+            project_type = ""
+            orig_filename = ""
+            file_bytes = None
+
+            if "multipart/form-data" in content_type:
+                match = re.search(r'boundary=([^\s;]+)', content_type, re.IGNORECASE)
+                if not match:
+                    raise ValueError("Missing boundary in Content-Type")
+                boundary = match.group(1).strip('"')
+                boundary_bytes = ("--" + boundary).encode("utf-8")
+
+                parts = body.split(boundary_bytes)
+                for part in parts:
+                    if not part or part == b'--\r\n' or part == b'--\n' or part == b'--':
+                        continue
+                    if b'\r\n\r\n' in part:
+                        header_bytes, content = part.split(b'\r\n\r\n', 1)
+                        if content.endswith(b'\r\n'):
+                            content = content[:-2]
+                        elif content.endswith(b'\n'):
+                            content = content[:-1]
+                    elif b'\n\n' in part:
+                        header_bytes, content = part.split(b'\n\n', 1)
+                        if content.endswith(b'\r\n'):
+                            content = content[:-2]
+                        elif content.endswith(b'\n'):
+                            content = content[:-1]
+                    else:
+                        continue
+
+                    header_str = header_bytes.decode("utf-8", errors="ignore")
+                    if 'name="project"' in header_str or 'name="project_type"' in header_str:
+                        project_type = content.decode("utf-8", errors="ignore").strip().upper()
+                    elif 'filename=' in header_str or 'name="file"' in header_str:
+                        file_bytes = content
+                        fn_match = re.search(r'filename="([^"]+)"', header_str)
+                        if not fn_match:
+                            fn_match = re.search(r'filename=([^\s;]+)', header_str)
+                        if fn_match:
+                            orig_filename = fn_match.group(1).strip()
+            else:
+                file_bytes = body
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(urlparse(self.path).query)
+                project_type = qs.get("project", [""])[0].upper()
+                orig_filename = qs.get("filename", ["uploaded.xlsx"])[0]
+
+            if not file_bytes:
+                raise ValueError("No file content received")
+
+            if not project_type:
+                if "Z1F" in orig_filename.upper():
+                    project_type = "Z1F"
+                elif "ASK" in orig_filename.upper():
+                    project_type = "ASK"
+
+            if project_type not in ("Z1F", "ASK"):
+                raise ValueError("Could not determine project (Z1F or ASK) from upload")
+
+            # Extract date from orig_filename or use current date YYYYMMDD
+            date_str = datetime.datetime.now().strftime("%Y%m%d")
+            m = re.search(r'(20\d{6})', orig_filename)
+            if not m:
+                m = re.search(r'(20\d{2}[-_.]?\d{2}[-_.]?\d{2})', orig_filename)
+            if m:
+                date_str = re.sub(r'[^0-9]', '', m.group(0))
+
+            if project_type == "Z1F":
+                target_filename = f"Attachment 1-Procurement Plan-Z1F - {date_str}.xlsx"
+            else:
+                target_filename = f"Attachment 2-Procurement Plan-ASK - {date_str}.xlsx"
+
+            target_path = BASE_DIR / target_filename
+            with open(target_path, "wb") as f:
+                f.write(file_bytes)
+
+            print(f"\n[API] Uploaded and saved {project_type} file: {target_filename} ({len(file_bytes)} bytes)")
+
+            print("[API] Refreshing data cache after upload...")
+            new_data = extract_all_data()
+            with _data_cache["lock"]:
+                _data_cache["data"] = new_data
+
+            response_data = {
+                "success": True,
+                "project": project_type,
+                "filename": target_filename,
+                "data": new_data
+            }
+            json_bytes = json.dumps(response_data, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", len(json_bytes))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json_bytes)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            error_msg = json.dumps({"error": str(e)}).encode("utf-8")
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", len(error_msg))
+            self.end_headers()
+            self.wfile.write(error_msg)
+
     def send_api_data(self):
         """Return cached data, or read Excel files if cache is empty."""
         try:

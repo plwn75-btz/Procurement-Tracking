@@ -30,11 +30,17 @@
                     <span class="date-value" id="display-lookahead">—</span>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-                    <button class="btn-update" id="btn-update" onclick="refreshData()">
-                        <span class="btn-icon">🔄</span>
-                        <span class="spinner"></span>
-                        Update Data
-                    </button>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button class="btn-upload-modal" onclick="openUploadModal()">
+                            <span class="btn-icon">📁</span>
+                            Upload Center
+                        </button>
+                        <button class="btn-update" id="btn-update" onclick="refreshData()">
+                            <span class="btn-icon">🔄</span>
+                            <span class="spinner"></span>
+                            Update Data
+                        </button>
+                    </div>
                     <div id="source-files-container" style="font-size: 11px; color: var(--text-muted); text-align: right; line-height: 1.3;">
                         <div>Z1F: <span id="src-z1f" style="color: var(--text-secondary); font-weight: 500;">—</span></div>
                         <div>ASK: <span id="src-ask" style="color: var(--text-secondary); font-weight: 500;">—</span></div>
@@ -142,6 +148,63 @@
 
         <!-- Last Updated -->
         <div class="last-updated" id="last-updated"></div>
+    </div>
+
+    <!-- Upload Center Modal -->
+    <div class="modal-overlay" id="upload-modal-overlay" onclick="closeModalOnOverlay(event)">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title-wrap">
+                    <div class="modal-folder-icon">📁</div>
+                    <div>
+                        <h2 class="modal-title">Weekly Cut-off Upload Center</h2>
+                        <p class="modal-subtitle">Manually update weekly progress Excel files. Auto-detects Work Package assignment.</p>
+                    </div>
+                </div>
+                <button class="modal-close-btn" onclick="closeUploadModal()">×</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Drag and Drop Zone -->
+                <div class="drop-zone" id="drop-zone">
+                    <div class="drop-cloud-icon">☁️</div>
+                    <div class="drop-title">Drag & Drop weekly Excel cut-off files here</div>
+                    <div class="drop-desc">Supports .xlsx and .xlsm format from contractors</div>
+                    <div class="drop-or">OR</div>
+                    <button class="btn-browse" onclick="document.getElementById('global-file-input').click()">Browse Computer for Files</button>
+                    <input type="file" id="global-file-input" style="display: none;" accept=".xlsx,.xlsm" onchange="handleGlobalFileInput(event)">
+                </div>
+
+                <!-- Cards Grid -->
+                <div class="upload-cards-grid">
+                    <!-- Z1F Card -->
+                    <div class="upload-card">
+                        <div class="upload-card-header">
+                            <div class="upload-card-title">WP-1 Topside & Jacket (Z1F)</div>
+                            <span class="status-badge active-badge">Active</span>
+                        </div>
+                        <div class="upload-card-filename" id="modal-z1f-file">—</div>
+                        <button class="btn-card-upload" onclick="document.getElementById('z1f-file-input').click()">Upload Specific File</button>
+                        <input type="file" id="z1f-file-input" style="display: none;" accept=".xlsx,.xlsm" onchange="handleSpecificFileInput(event, 'Z1F')">
+                    </div>
+
+                    <!-- ASK Card -->
+                    <div class="upload-card">
+                        <div class="upload-card-header">
+                            <div class="upload-card-title">WP-2 Overall Cycle (ASK)</div>
+                            <span class="status-badge active-badge">Active</span>
+                        </div>
+                        <div class="upload-card-filename" id="modal-ask-file">—</div>
+                        <button class="btn-card-upload" onclick="document.getElementById('ask-file-input').click()">Upload Specific File</button>
+                        <input type="file" id="ask-file-input" style="display: none;" accept=".xlsx,.xlsm" onchange="handleSpecificFileInput(event, 'ASK')">
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn-modal-done" onclick="closeUploadModal()">Done</button>
+            </div>
+        </div>
     </div>
 
     <!-- Toast Container -->
