@@ -441,7 +441,7 @@ body::before {
     table-layout: fixed;
 }
 
-.data-table thead th {
+.data-table > thead > tr > th {
     padding: 12px 16px;
     text-align: left;
     font-size: 11px;
@@ -461,33 +461,33 @@ body::before {
     transition: color var(--transition-fast);
 }
 
-.data-table thead th:last-child {
+.data-table > thead > tr > th:last-child {
     text-align: right;
 }
 
-.data-table thead th:hover {
+.data-table > thead > tr > th:hover {
     color: var(--text-secondary);
 }
 
-.data-table tbody tr {
+.data-table > tbody > tr {
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
     transition: background var(--transition-fast);
     cursor: pointer;
 }
 
-.data-table tbody tr:hover {
+.data-table > tbody > tr:hover {
     background: var(--bg-glass-hover);
 }
 
-.data-table tbody tr.delayed-row {
+.data-table > tbody > tr.delayed-row {
     border-left: 3px solid var(--status-delayed);
 }
 
-.data-table tbody tr.atrisk-row {
+.data-table > tbody > tr.atrisk-row {
     border-left: 3px solid var(--status-atrisk);
 }
 
-.data-table tbody td {
+.data-table > tbody > tr > td {
     padding: 12px 16px;
     font-size: 13px;
     color: var(--text-secondary);
@@ -496,11 +496,11 @@ body::before {
     text-overflow: ellipsis;
 }
 
-.data-table tbody td:last-child {
+.data-table > tbody > tr > td:last-child {
     text-align: right;
 }
 
-.data-table tbody td:first-child {
+.data-table > tbody > tr > td:first-child {
     color: var(--text-primary);
     font-weight: 500;
 }
@@ -596,15 +596,22 @@ body::before {
     display: table-row;
 }
 
-.detail-row td {
+.detail-row td,
+.data-table > tbody > tr.detail-row > td {
     padding: 0 !important;
     border-bottom: 2px solid var(--border-glass) !important;
+    text-align: left !important;
+    white-space: normal !important;
+    overflow: visible !important;
 }
 
 .detail-content {
     padding: 20px 24px;
     background: rgba(0, 0, 0, 0.15);
     animation: slideDown 0.3s ease;
+    text-align: left;
+    white-space: normal !important;
+    overflow: visible !important;
 }
 
 @keyframes slideDown {
@@ -643,9 +650,10 @@ body::before {
     color: var(--text-dim);
     font-weight: 500;
     line-height: 1.2;
-    max-width: 80px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    max-width: 85px;
+    white-space: normal;
+    word-break: break-word;
+    overflow: visible;
 }
 
 .pipeline-stage .stage-date {
@@ -692,6 +700,16 @@ body::before {
     background: var(--bg-glass);
     border: 1px solid var(--border-glass);
     border-radius: var(--radius-sm);
+    min-width: 0;
+    overflow: visible !important;
+    text-align: left;
+    white-space: normal !important;
+}
+
+.detail-item.pkg-name-box {
+    grid-column: 1 / -1;
+    text-align: left;
+    white-space: normal !important;
 }
 
 .detail-item .label {
@@ -700,12 +718,19 @@ body::before {
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 4px;
+    text-align: left;
+    white-space: normal !important;
 }
 
 .detail-item .value {
     font-size: 13px;
     color: var(--text-primary);
     font-weight: 500;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    line-height: 1.4;
+    text-align: left;
+    white-space: normal !important;
 }
 
 /* ─── Stage Detail Table ─── */
@@ -714,6 +739,7 @@ body::before {
     border-collapse: collapse;
     margin-top: 12px;
     font-size: 12px;
+    table-layout: fixed;
 }
 
 .stage-table thead th {
@@ -725,19 +751,29 @@ body::before {
     text-transform: uppercase;
     letter-spacing: 0.5px;
     border-bottom: 1px solid var(--border-glass);
+    white-space: normal !important;
+    overflow: visible !important;
 }
 
 .stage-table tbody td {
-    padding: 6px 12px;
+    padding: 8px 12px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.02);
     color: var(--text-secondary);
+    text-align: left;
+    white-space: normal !important;
+    overflow: visible !important;
 }
 
-.stage-table tbody tr.stage-delayed-row {
+.stage-table thead th:last-child,
+.stage-table tbody td:last-child {
+    text-align: left;
+}
+
+.stage-table tbody tr.stage-delayed-row td {
     background: var(--status-delayed-bg);
 }
 
-.stage-table tbody tr.stage-atrisk-row {
+.stage-table tbody tr.stage-atrisk-row td {
     background: var(--status-atrisk-bg);
 }
 

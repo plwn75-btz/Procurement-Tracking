@@ -517,15 +517,25 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(BASE_DIR), **kwargs)
 
+    def end_headers(self):
+        # Prevent browser/CDN caching of CSS, JS, and HTML so new deployments update instantly
+        path_clean = self.path.split("?")[0]
+        if any(path_clean.endswith(ext) for ext in (".html", ".css", ".js")):
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+        super().end_headers()
+
     def do_GET(self):
-        if self.path == "/api/data":
+        path_clean = self.path.split("?")[0]
+        if path_clean == "/api/data":
             self.send_api_data()
-        elif self.path == "/api/refresh":
+        elif path_clean == "/api/refresh":
             self.send_api_refresh()
-        elif self.path == "/":
+        elif path_clean == "/":
             self.path = "/index.html"
             super().do_GET()
-        elif self.path == "/favicon.ico":
+        elif path_clean == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
         else:

@@ -356,7 +356,7 @@ function renderDetailContent(pkg) {
     // Info grid
     let infoHtml = `
     <div class="detail-grid">
-        <div class="detail-item"><div class="label">Package Name</div><div class="value">${escHtml(pkg.package_name)}</div></div>
+        <div class="detail-item pkg-name-box"><div class="label">Package Name</div><div class="value">${escHtml(pkg.package_name)}</div></div>
         <div class="detail-item"><div class="label">RFQ No.</div><div class="value">${escHtml(pkg.rfq_no)}</div></div>
         ${pkg.mr_no ? `<div class="detail-item"><div class="label">MR No.</div><div class="value">${escHtml(pkg.mr_no)}</div></div>` : ''}
         <div class="detail-item"><div class="label">Priority</div><div class="value">${escHtml(pkg.priority)}</div></div>
@@ -384,6 +384,14 @@ function renderDetailContent(pkg) {
     // Stage detail table
     let stageTableHtml = `
     <table class="stage-table">
+        <colgroup>
+            <col style="width: 28%;">
+            <col style="width: 15%;">
+            <col style="width: 15%;">
+            <col style="width: 15%;">
+            <col style="width: 15%;">
+            <col style="width: 12%;">
+        </colgroup>
         <thead>
             <tr>
                 <th>Stage</th>
