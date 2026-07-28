@@ -36,7 +36,7 @@ Z1F_CONFIG = {
     "data_start_row": 13,
     "pfa_col": "M",          # P/F/A indicator
     "pfa_values": {
-        "P": "Plan", "PLAN": "Plan",
+        "P": "Plan", "PLAN": "Plan", "NEW PLAN": "Plan",
         "F": "Forecast", "FORECAST": "Forecast",
         "A": "Actual", "ACTUAL": "Actual"
     },
@@ -82,7 +82,7 @@ ASK_CONFIG = {
     "data_start_row": 19,
     "pfa_col": "P",          # Plan/Forecast/Actual indicator
     "pfa_values": {
-        "P": "Plan", "PLAN": "Plan",
+        "P": "Plan", "PLAN": "Plan", "NEW PLAN": "Plan",
         "F": "Forecast", "FORECAST": "Forecast",
         "A": "Actual", "ACTUAL": "Actual"
     },
