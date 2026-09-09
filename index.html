@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Procurement Tracking Dashboard - Track delays across procurement stages for Z1F and ASK projects">
     <title>Procurement Tracking Dashboard</title>
-    <link rel="stylesheet" href="styles.css?v=20260713_4">
+    <link rel="stylesheet" href="styles.css?v=20260714_1">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
 </head>
 <body>
@@ -101,6 +101,7 @@
             </select>
             <select class="filter-select" id="sort-select" onchange="sortBy(this.value)">
                 <option value="delay">Sort: Most Delayed</option>
+                <option value="float">Sort: Lowest Float (Critical First)</option>
                 <option value="name">Sort: Package Name</option>
                 <option value="status">Sort: Status</option>
             </select>
@@ -122,12 +123,13 @@
                 <table class="data-table" id="data-table">
                     <colgroup>
                         <col style="width: 36px;">
-                        <col style="width: 30%;">
-                        <col style="width: 130px;">
+                        <col style="width: 27%;">
+                        <col style="width: 120px;">
                         <col style="width: 110px;">
-                        <col style="width: 160px;">
+                        <col style="width: 150px;">
                         <col style="min-width: 0; width: auto;">
-                        <col style="width: 100px;">
+                        <col style="width: 120px;">
+                        <col style="width: 95px;">
                     </colgroup>
                     <thead>
                         <tr>
@@ -137,6 +139,7 @@
                             <th onclick="sortBy('status')">Status</th>
                             <th>Current Stage</th>
                             <th>Delayed Stages</th>
+                            <th onclick="sortBy('float')" style="text-align: right;" title="Package Float (Actual or Dynamic Forecast)">Float</th>
                             <th onclick="sortBy('delay')" style="text-align: right;">Max Delay</th>
                         </tr>
                     </thead>
@@ -210,6 +213,6 @@
     <!-- Toast Container -->
     <div id="toast" class="toast"></div>
 
-    <script src="app.js?v=20260713_4"></script>
+    <script src="app.js?v=20260714_1"></script>
 </body>
 </html>

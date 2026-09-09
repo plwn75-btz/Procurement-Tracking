@@ -587,6 +587,69 @@ body::before {
     color: var(--text-dim);
 }
 
+/* ─── Float Badges ─── */
+.float-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    white-space: nowrap;
+    transition: all var(--transition-fast);
+}
+
+.float-badge.red {
+    background: var(--status-delayed-bg);
+    color: var(--status-delayed);
+    border: 1px solid var(--status-delayed-border);
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.15);
+}
+
+.float-badge.yellow {
+    background: var(--status-atrisk-bg);
+    color: var(--status-atrisk);
+    border: 1px solid var(--status-atrisk-border);
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.15);
+}
+
+.float-badge.green {
+    background: var(--status-ontrack-bg);
+    color: var(--status-ontrack);
+    border: 1px solid var(--status-ontrack-border);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.15);
+}
+
+.float-badge.none {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+    border: 1px solid var(--border-glass);
+}
+
+.float-badge .float-tag {
+    font-size: 9px;
+    font-weight: 600;
+    opacity: 0.9;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.3);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.float-badge .float-tag.actual {
+    background: rgba(59, 130, 246, 0.35);
+    color: #93c5fd;
+}
+
+.float-badge .float-tag.overdue_forecast {
+    background: rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+}
+
 /* ─── Detail/Expand Row ─── */
 .detail-row {
     display: none;
@@ -731,6 +794,74 @@ body::before {
     line-height: 1.4;
     text-align: left;
     white-space: normal !important;
+}
+
+/* ─── Float Detail Card ─── */
+.detail-item.float-card-box {
+    grid-column: 1 / -1;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-glass);
+    padding: 14px 18px;
+    border-radius: var(--radius-md);
+    position: relative;
+    overflow: hidden;
+    white-space: normal !important;
+}
+
+.detail-item.float-card-box.red {
+    border-color: var(--status-delayed-border);
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.09) 0%, rgba(17, 24, 39, 0.7) 100%);
+}
+
+.detail-item.float-card-box.yellow {
+    border-color: var(--status-atrisk-border);
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.09) 0%, rgba(17, 24, 39, 0.7) 100%);
+}
+
+.detail-item.float-card-box.green {
+    border-color: var(--status-ontrack-border);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.09) 0%, rgba(17, 24, 39, 0.7) 100%);
+}
+
+.detail-item.float-card-box .float-val-lg {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 6px 0;
+    flex-wrap: wrap;
+}
+
+.detail-item.float-card-box .float-status-desc {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.detail-item.float-card-box .float-status-desc.red { color: var(--status-delayed); }
+.detail-item.float-card-box .float-status-desc.yellow { color: var(--status-atrisk); }
+.detail-item.float-card-box .float-status-desc.green { color: var(--status-ontrack); }
+
+.detail-item.float-card-box .float-subnote {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
+.detail-item.float-card-box .float-subnote.red { color: #fca5a5; }
+.detail-item.float-card-box .float-subnote.yellow { color: #fde68a; }
+.detail-item.float-card-box .float-subnote.green { color: #a7f3d0; }
+
+.detail-item.float-card-box .float-meta-details {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 6px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
+}
+
+.detail-item.float-card-box .float-meta-details b {
+    color: var(--text-primary);
+    font-weight: 600;
 }
 
 /* ─── Stage Detail Table ─── */

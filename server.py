@@ -46,6 +46,11 @@ Z1F_CONFIG = {
     "item_no_col": "A",
     "priority_col": "K",
     "lli_col": "I",
+    "float_col": "AN",
+    "ros_date_col": "AM",
+    "duration_days_col": "AK",
+    "duration_weeks_col": "AJ",
+    "delivery_date_col": "AL",
     "stages": [
         {"name": "Bidder List Approval",       "col": "N"},
         {"name": "MR IFA Issued",              "col": "O"},
@@ -92,6 +97,12 @@ ASK_CONFIG = {
     "item_no_col": "A",
     "priority_col": "I",
     "lli_col": "G",
+    "float_col": "G",
+    "float_ar_col": "AR",
+    "ros_date_col": "AN",
+    "duration_days_col": "AL",
+    "duration_weeks_col": "AK",
+    "delivery_date_col": "AM",
     "stages": [
         {"name": "Bidder List Approval",       "col": "Q"},
         {"name": "MR IFA Issued",              "col": "R"},
@@ -228,12 +239,17 @@ def auto_detect_columns(ws, base_config):
 
     # --- Metadata columns ---
     META_PATTERNS = {
-        "item_no_col":      ["no.", "no"],
-        "package_name_col": ["package name"],
-        "rfq_no_col":       ["rfq no.", "rfq no"],
-        "mr_no_col":        ["mr no.", "mr no"],
-        "priority_col":     ["priority level", "priority"],
-        "lli_col":          ["lli (y/n)", "long lead item (y/n)", "lli", "long lead item"],
+        "item_no_col":         ["no.", "no"],
+        "package_name_col":    ["package name"],
+        "rfq_no_col":          ["rfq no.", "rfq no"],
+        "mr_no_col":           ["mr no.", "mr no"],
+        "priority_col":        ["priority level", "priority"],
+        "lli_col":             ["lli (y/n)", "long lead item (y/n)", "lli", "long lead item"],
+        "float_col":           ["float"],
+        "ros_date_col":        ["ros date"],
+        "duration_days_col":   ["days", "lead time"],
+        "duration_weeks_col":  ["delivery duration (weeks)", "delivery duration"],
+        "delivery_date_col":   ["delivery date(1st batch for zwp21)", "delivery date", "eta date"],
     }
     for key, patterns in META_PATTERNS.items():
         if base_config.get(key) is None:
@@ -354,6 +370,13 @@ def extract_file_data(filepath, config):
     lli_col_idx = col_to_idx(config["lli_col"])
     mr_col_idx = col_to_idx(config["mr_no_col"]) if config["mr_no_col"] else None
 
+    float_col_idx = col_to_idx(config.get("float_col"))
+    float_ar_col_idx = col_to_idx(config.get("float_ar_col"))
+    ros_col_idx = col_to_idx(config.get("ros_date_col"))
+    dur_days_col_idx = col_to_idx(config.get("duration_days_col"))
+    dur_weeks_col_idx = col_to_idx(config.get("duration_weeks_col"))
+    deliv_date_col_idx = col_to_idx(config.get("delivery_date_col"))
+
     stage_col_indices = [(s["name"], col_to_idx(s["col"])) for s in config["stages"]]
 
     packages = []
@@ -443,6 +466,66 @@ def extract_file_data(filepath, config):
                 "actual": actual_date,
             })
 
+        # Extract float metrics from Excel
+        static_float = None
+        for r_cand, c_cand in [
+            (forecast_row, float_col_idx),
+            (forecast_row, float_ar_col_idx),
+            (plan_row, float_col_idx),
+            (plan_row, float_ar_col_idx),
+        ]:
+            if r_cand and c_cand:
+                val = ws.cell(row=r_cand, column=c_cand).value
+                if val is not None:
+                    try:
+                        static_float = int(round(float(val)))
+                        break
+                    except (ValueError, TypeError):
+                        pass
+
+        # Extract ROS date
+        ros_date = None
+        for r_cand in [plan_row, forecast_row]:
+            if r_cand and ros_col_idx:
+                r_val = safe_date(ws.cell(row=r_cand, column=ros_col_idx).value)
+                if r_val:
+                    ros_date = r_val
+                    break
+
+        # Extract delivery duration (days)
+        delivery_duration_days = None
+        if dur_days_col_idx:
+            for r_cand in [forecast_row, plan_row]:
+                if r_cand:
+                    val = ws.cell(row=r_cand, column=dur_days_col_idx).value
+                    if val is not None:
+                        try:
+                            delivery_duration_days = float(val)
+                            break
+                        except (ValueError, TypeError):
+                            pass
+
+        if delivery_duration_days is None and dur_weeks_col_idx:
+            for r_cand in [plan_row, forecast_row]:
+                if r_cand:
+                    val = ws.cell(row=r_cand, column=dur_weeks_col_idx).value
+                    if val is not None:
+                        try:
+                            delivery_duration_days = round(float(val) * 7, 1)
+                            break
+                        except (ValueError, TypeError):
+                            pass
+
+        # Extract forecast delivery date
+        deliv_date = None
+        if deliv_date_col_idx:
+            for r_cand in [forecast_row, plan_row]:
+                if r_cand:
+                    d_val = safe_date(ws.cell(row=r_cand, column=deliv_date_col_idx).value)
+                    if d_val:
+                        deliv_date = d_val
+                        break
+
         packages.append({
             "item_no": str(item_no),
             "package_name": str(package_name).strip(),
@@ -451,6 +534,10 @@ def extract_file_data(filepath, config):
             "priority": str(priority).strip(),
             "lli": str(lli).strip(),
             "stages": stages,
+            "float_days": static_float,
+            "ros_date": ros_date,
+            "delivery_duration_days": delivery_duration_days,
+            "delivery_date": deliv_date,
         })
 
         # Move to the next package group

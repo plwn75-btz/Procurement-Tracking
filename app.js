@@ -187,6 +187,136 @@ function dateDiffDays(dateStr1, dateStr2) {
     return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
 }
 
+function addDays(dateStr, days) {
+    if (!dateStr || days === null || days === undefined) return null;
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return null;
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    d.setDate(d.getDate() + Math.round(Number(days)));
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function computePackageFloat(pkg, today) {
+    // Locate the "PO Issued" stage
+    let poStage = null;
+    for (const stage of (pkg.stages || [])) {
+        const norm = stage.name.toLowerCase();
+        if (norm === 'po issued' || norm.includes('po issued')) {
+            poStage = stage;
+            break;
+        }
+    }
+
+    const durationDays = (pkg.delivery_duration_days !== null && pkg.delivery_duration_days !== undefined) ?
+                         Number(pkg.delivery_duration_days) : null;
+    const rosDate = pkg.ros_date || null;
+    const staticFloat = (pkg.float_days !== null && pkg.float_days !== undefined) ? Number(pkg.float_days) : null;
+
+    // CASE 1: PO has been issued (Actual PO Date exists)
+    if (poStage && poStage.actual) {
+        let delivDate = null;
+        let actualFloat = null;
+
+        if (durationDays !== null && rosDate) {
+            delivDate = addDays(poStage.actual, durationDays);
+            actualFloat = dateDiffDays(delivDate, rosDate);
+        } else if (staticFloat !== null) {
+            actualFloat = staticFloat;
+        }
+
+        return {
+            floatDays: actualFloat,
+            type: 'actual',
+            poDate: poStage.actual,
+            deliveryDate: delivDate,
+            rosDate: rosDate,
+            overdueDays: 0,
+            deliveryDurationDays: durationDays,
+            staticFloat: staticFloat,
+        };
+    }
+
+    // CASE 2: PO has NOT been issued
+    const forecastPo = poStage ? (poStage.forecast || poStage.plan) : null;
+
+    if (forecastPo && forecastPo < today) {
+        // CASE 2A: Forecast PO is OVERDUE -> Use TODAY as the dynamic baseline!
+        const overdueDays = dateDiffDays(forecastPo, today);
+        let dynDelivDate = null;
+        let dynFloat = null;
+
+        if (durationDays !== null && rosDate) {
+            dynDelivDate = addDays(today, durationDays);
+            dynFloat = dateDiffDays(dynDelivDate, rosDate);
+        } else if (staticFloat !== null) {
+            dynFloat = staticFloat - overdueDays;
+        }
+
+        return {
+            floatDays: dynFloat,
+            type: 'overdue_forecast',
+            poDate: forecastPo,
+            deliveryDate: dynDelivDate,
+            rosDate: rosDate,
+            overdueDays: overdueDays,
+            deliveryDurationDays: durationDays,
+            staticFloat: staticFloat,
+        };
+    }
+
+    // CASE 2B: Forecast PO is in the future / on schedule (or date not overdue)
+    let fcstDelivDate = null;
+    let fcstFloat = null;
+
+    if (forecastPo && durationDays !== null && rosDate) {
+        fcstDelivDate = addDays(forecastPo, durationDays);
+        fcstFloat = dateDiffDays(fcstDelivDate, rosDate);
+    } else if (staticFloat !== null) {
+        fcstFloat = staticFloat;
+        fcstDelivDate = pkg.delivery_date || null;
+    }
+
+    return {
+        floatDays: fcstFloat,
+        type: 'forecast',
+        poDate: forecastPo,
+        deliveryDate: fcstDelivDate,
+        rosDate: rosDate,
+        overdueDays: 0,
+        deliveryDurationDays: durationDays,
+        staticFloat: staticFloat,
+    };
+}
+
+function formatFloatBadge(f) {
+    if (!f || f.floatDays === null || f.floatDays === undefined) {
+        return '<span class="float-badge none">—</span>';
+    }
+    const val = f.floatDays;
+    let colorClass = 'green';
+    if (val < 0) colorClass = 'red';
+    else if (val < 21) colorClass = 'yellow';
+
+    let tag = 'Fcst';
+    let tooltip = `Forecast Float: ${val >= 0 ? '+' : ''}${val} days`;
+    if (f.type === 'actual') {
+        tag = 'Act';
+        tooltip = `Actual Float: ${val >= 0 ? '+' : ''}${val} days (Based on Actual PO: ${formatDate(f.poDate)})`;
+    } else if (f.type === 'overdue_forecast') {
+        tag = 'Fcst*';
+        tooltip = `Dynamic Float: ${val >= 0 ? '+' : ''}${val} days (PO is ${f.overdueDays}d overdue; dynamic baseline: Today)`;
+    }
+
+    const sign = val > 0 ? '+' : '';
+    return `<span class="float-badge ${colorClass}" title="${escHtml(tooltip)}">` +
+           `<span class="float-val">${sign}${val}d</span>` +
+           `<span class="float-tag ${f.type}">${tag}</span>` +
+           `</span>`;
+}
+
 function formatDate(dateStr) {
     if (!dateStr) return '—';
     const d = new Date(dateStr);
@@ -210,6 +340,7 @@ function renderDashboard() {
 function getAllPackages() {
     const result = [];
     const projects = appState.data.projects || {};
+    const today = getToday();
 
     for (const [projectName, projectData] of Object.entries(projects)) {
         if (projectData.error) continue;
@@ -217,19 +348,30 @@ function getAllPackages() {
 
         for (const pkg of (projectData.packages || [])) {
             const status = computePackageStatus(pkg);
+            const floatInfo = computePackageFloat(pkg, today);
             result.push({
                 ...pkg,
                 project: projectName,
                 _status: status,
+                _float: floatInfo,
             });
         }
     }
 
     // Sort
     result.sort((a, b) => {
+        if (appState.sortField === 'float') {
+            const aFlt = (a._float && a._float.floatDays !== null && a._float.floatDays !== undefined) ? a._float.floatDays : 999999;
+            const bFlt = (b._float && b._float.floatDays !== null && b._float.floatDays !== undefined) ? b._float.floatDays : 999999;
+            const diff = aFlt - bFlt;
+            return appState.sortDir === 'asc' ? diff : -diff;
+        }
         if (appState.sortField === 'delay') {
             const diff = b._status.maxDelay - a._status.maxDelay;
-            return appState.sortDir === 'desc' ? diff : -diff;
+            if (diff !== 0) return appState.sortDir === 'desc' ? diff : -diff;
+            const aFlt = (a._float && a._float.floatDays !== null) ? a._float.floatDays : 999999;
+            const bFlt = (b._float && b._float.floatDays !== null) ? b._float.floatDays : 999999;
+            return aFlt - bFlt;
         }
         if (appState.sortField === 'name') {
             const diff = a.package_name.localeCompare(b.package_name);
@@ -336,10 +478,11 @@ function renderTable(packages) {
             <td><span class="status-badge ${s.overallStatus}"><span class="status-dot"></span>${statusLabel(s.overallStatus)}</span></td>
             <td>${escHtml(s.currentStage)}</td>
             <td title="${escHtml(delayText)}">${escHtml(delayText)}</td>
-            <td>${s.maxDelay > 0 ? `<span class="delay-value negative">${s.maxDelay}d</span>` : '<span class="delay-value zero">—</span>'}</td>
+            <td style="text-align: right;">${formatFloatBadge(pkg._float)}</td>
+            <td style="text-align: right;">${s.maxDelay > 0 ? `<span class="delay-value negative">${s.maxDelay}d</span>` : '<span class="delay-value zero">—</span>'}</td>
         </tr>
         <tr class="detail-row ${isExpanded ? 'expanded' : ''}" id="detail-${css_safe(pkg.rfq_no + pkg.project)}">
-            <td colspan="7">
+            <td colspan="8">
                 <div class="detail-content">
                     ${renderDetailContent(pkg)}
                 </div>
@@ -352,6 +495,46 @@ function renderTable(packages) {
 
 function renderDetailContent(pkg) {
     const s = pkg._status;
+    const f = pkg._float;
+
+    let floatCardHtml = '';
+    if (f && f.floatDays !== null && f.floatDays !== undefined) {
+        const val = f.floatDays;
+        let colorCls = val < 0 ? 'red' : val < 21 ? 'yellow' : 'green';
+        let statusText = val < 0 ? 'Negative Float (Critical Delay)' :
+                         val < 21 ? 'Tight Buffer (< 21 Days)' : 'Healthy Buffer (≥ 21 Days)';
+        let subNote = '';
+        if (f.type === 'actual') {
+            subNote = `Based on confirmed Actual PO Date (${formatDate(f.poDate)})`;
+        } else if (f.type === 'overdue_forecast') {
+            subNote = `⚠️ PO is ${f.overdueDays}d overdue (Forecast: ${formatDate(f.poDate)}). Baseline dynamically adjusted to Today.`;
+        } else {
+            subNote = f.poDate ? `Based on Forecast PO Date (${formatDate(f.poDate)})` : 'Based on Forecast Schedule';
+        }
+
+        let delivInfo = f.deliveryDate ? `Est. Delivery: <b>${formatDate(f.deliveryDate)}</b>` : '';
+        let rosInfo = f.rosDate ? `Required On Site (ROS): <b>${formatDate(f.rosDate)}</b>` : '';
+        let durInfo = f.deliveryDurationDays ? `Lead Time: <b>${f.deliveryDurationDays}d</b>` : '';
+        let metaDetails = [durInfo, delivInfo, rosInfo].filter(Boolean).join(' &nbsp;•&nbsp; ');
+
+        floatCardHtml = `
+        <div class="detail-item float-card-box ${colorCls}">
+            <div class="label">Package Float (${f.type === 'actual' ? 'Actual Post-Award' : f.type === 'overdue_forecast' ? 'Dynamic Forecast (PO Overdue)' : 'Forecast Schedule'})</div>
+            <div class="value float-val-lg">
+                ${formatFloatBadge(f)}
+                <span class="float-status-desc ${colorCls}">${statusText}</span>
+            </div>
+            <div class="float-subnote ${colorCls}">${subNote}</div>
+            ${metaDetails ? `<div class="float-meta-details">${metaDetails}</div>` : ''}
+        </div>`;
+    } else {
+        floatCardHtml = `
+        <div class="detail-item float-card-box none">
+            <div class="label">Package Float</div>
+            <div class="value float-val-lg"><span class="float-badge none">—</span> <span class="float-status-desc">Pending Schedule Data</span></div>
+            <div class="float-subnote">Required On Site (ROS) date or lead time duration not yet established in procurement plan.</div>
+        </div>`;
+    }
 
     // Info grid
     let infoHtml = `
@@ -363,6 +546,7 @@ function renderDetailContent(pkg) {
         <div class="detail-item"><div class="label">Long Lead Item</div><div class="value">${escHtml(pkg.lli)}</div></div>
         <div class="detail-item"><div class="label">Project</div><div class="value">${pkg.project}</div></div>
         <div class="detail-item"><div class="label">Progress</div><div class="value">${s.completedStages}/${s.totalStages} stages</div></div>
+        ${floatCardHtml}
     </div>`;
 
     // Pipeline visualization
@@ -527,7 +711,11 @@ function sortBy(field) {
         appState.sortDir = appState.sortDir === 'desc' ? 'asc' : 'desc';
     } else {
         appState.sortField = field;
-        appState.sortDir = 'desc';
+        appState.sortDir = field === 'float' ? 'asc' : 'desc';
+    }
+    const sortSelect = document.getElementById('sort-select');
+    if (sortSelect && ['delay', 'float', 'name', 'status'].includes(field)) {
+        sortSelect.value = field;
     }
     renderDashboard();
 }
