@@ -541,6 +541,12 @@ body::before {
     border: 1px solid var(--status-completed-border);
 }
 
+.status-badge.fcst-slip {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
 .status-badge.upcoming, .status-badge.ignored {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-muted);
@@ -555,6 +561,7 @@ body::before {
 
 .status-badge.delayed .status-dot { background: var(--status-delayed); animation: pulse-red 2s infinite; }
 .status-badge.atrisk .status-dot { background: var(--status-atrisk); animation: pulse-amber 2s infinite; }
+.status-badge.fcst-slip .status-dot { background: #fbbf24; animation: pulse-amber 2s infinite; }
 .status-badge.ontrack .status-dot { background: var(--status-ontrack); }
 .status-badge.completed .status-dot { background: var(--status-completed); }
 .status-badge.upcoming .status-dot, .status-badge.ignored .status-dot { background: var(--text-muted); }
@@ -732,6 +739,11 @@ body::before {
 .pipeline-stage.stage-atrisk { background: var(--status-atrisk-bg); border-color: var(--status-atrisk-border); }
 .pipeline-stage.stage-ontrack .stage-date { color: var(--status-ontrack); }
 .pipeline-stage.stage-upcoming .stage-date { color: var(--text-dim); }
+.pipeline-stage.stage-fcst-slip .stage-date, .pipeline-stage.stage-fcst_slip .stage-date { color: #fbbf24; }
+.pipeline-stage.stage-fcst-slip, .pipeline-stage.stage-fcst_slip {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.4);
+}
 
 .pipeline-stage .stage-delay-badge {
     font-size: 9px;
@@ -748,6 +760,49 @@ body::before {
 .pipeline-stage.stage-atrisk .stage-delay-badge {
     background: var(--status-atrisk);
     color: #1a1a1a;
+}
+
+.pipeline-stage.stage-fcst-slip .stage-delay-badge, .pipeline-stage.stage-fcst_slip .stage-delay-badge {
+    background: #f59e0b;
+    color: #1a1a1a;
+}
+
+/* ─── Forecast Status Pill in Current Stage ─── */
+.fcst-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 10px;
+    margin-top: 4px;
+    white-space: nowrap;
+    line-height: 1.2;
+}
+
+.fcst-pill.amber {
+    background: rgba(245, 158, 11, 0.18);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.fcst-pill.red {
+    background: rgba(239, 68, 68, 0.18);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.fcst-pill.blue {
+    background: rgba(59, 130, 246, 0.18);
+    color: #93c5fd;
+    border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.fcst-pill.green {
+    background: rgba(16, 185, 129, 0.18);
+    color: #6ee7b7;
+    border: 1px solid rgba(16, 185, 129, 0.4);
 }
 
 /* ─── Detail Grid ─── */

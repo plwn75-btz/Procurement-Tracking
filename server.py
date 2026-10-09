@@ -500,7 +500,7 @@ def extract_file_data(filepath, config):
                     val = ws.cell(row=r_cand, column=dur_days_col_idx).value
                     if val is not None:
                         try:
-                            delivery_duration_days = float(val)
+                            delivery_duration_days = int(round(float(val)))
                             break
                         except (ValueError, TypeError):
                             pass
@@ -511,7 +511,7 @@ def extract_file_data(filepath, config):
                     val = ws.cell(row=r_cand, column=dur_weeks_col_idx).value
                     if val is not None:
                         try:
-                            delivery_duration_days = round(float(val) * 7, 1)
+                            delivery_duration_days = int(round(float(val) * 7))
                             break
                         except (ValueError, TypeError):
                             pass

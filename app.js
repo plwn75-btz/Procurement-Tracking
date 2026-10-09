@@ -77,10 +77,51 @@ function computePackageStatus(pkg) {
     let delayedStages = [];
     let atRiskStages = [];
     let maxDelay = 0;
-    let currentStage = null;
-    let currentStageStatus = 'upcoming';
 
-    for (const stage of pkg.stages) {
+    // 1. Identify valid stages and find the latest stage with an Actual date (Requirement 3, Point 1)
+    let latestCompletedIdx = -1;
+    let latestCompletedStage = null;
+
+    pkg.stages.forEach((stage, idx) => {
+        if (!stage.forecast && !stage.plan && !stage.actual) return;
+        if (stage.actual) {
+            latestCompletedIdx = idx;
+            latestCompletedStage = stage;
+        }
+    });
+
+    // 2. Determine the current active stage (first uncompleted stage following latest completed milestone)
+    let currentStageIdx = -1;
+    let currentStageInfo = null;
+
+    for (let i = Math.max(0, latestCompletedIdx + 1); i < pkg.stages.length; i++) {
+        const stage = pkg.stages[i];
+        if (!stage.forecast && !stage.plan && !stage.actual) continue;
+        const isBidderList = stage.name.toLowerCase().includes('bidder list approval');
+        const isBidClosing = stage.name.toLowerCase().includes('bid closing date');
+        if (!stage.actual && !isBidderList && !isBidClosing) {
+            currentStageIdx = i;
+            break;
+        }
+    }
+
+    // Fallback: If no stage after latest completed, or if no actuals exist at all, find first uncompleted
+    if (currentStageIdx === -1) {
+        for (let i = 0; i < pkg.stages.length; i++) {
+            const stage = pkg.stages[i];
+            if (!stage.forecast && !stage.plan && !stage.actual) continue;
+            const isBidderList = stage.name.toLowerCase().includes('bidder list approval');
+            const isBidClosing = stage.name.toLowerCase().includes('bid closing date');
+            if (!stage.actual && !isBidderList && !isBidClosing) {
+                currentStageIdx = i;
+                break;
+            }
+        }
+    }
+
+    // 3. Process all stages
+    for (let i = 0; i < pkg.stages.length; i++) {
+        const stage = pkg.stages[i];
         if (!stage.forecast && !stage.plan && !stage.actual) continue;
 
         const isBidderList = stage.name.toLowerCase().includes('bidder list approval');
@@ -93,84 +134,147 @@ function computePackageStatus(pkg) {
             actual: stage.actual,
             status: 'upcoming',
             delayDays: 0,
+            forecastSlipDays: 0,
         };
 
         if (stage.actual) {
             totalStages++;
-            // Stage completed
             stageInfo.status = 'completed';
             completedStages++;
 
-            // Check if actual was delayed vs plan
             if (stage.plan && stage.actual > stage.plan) {
                 const delay = dateDiffDays(stage.plan, stage.actual);
                 stageInfo.delayDays = delay;
+                if (delay > maxDelay) maxDelay = delay;
             }
         } else if (isBidderList || isBidClosing) {
-            // User requirement: Actual blank in Bidder List Approval or Bid Closing Date should be ignored and does not mean delay
             stageInfo.status = 'ignored';
-        } else if (stage.forecast) {
+        } else {
+            // Uncompleted stage
             totalStages++;
-            // Stage not completed, check forecast
-            if (stage.forecast < today) {
-                // Forecast date has passed but no actual → DELAYED
-                stageInfo.status = 'delayed';
-                stageInfo.delayDays = dateDiffDays(stage.forecast, today);
-                delayedStages.push(stageInfo);
-                if (stageInfo.delayDays > maxDelay) maxDelay = stageInfo.delayDays;
-            } else if (stage.forecast <= lookaheadEnd) {
-                // Forecast within 1-week lookahead → AT RISK / DUE SOON
-                stageInfo.status = 'atrisk';
-                atRiskStages.push(stageInfo);
-            } else {
-                // Future date
+
+            const isDownstreamUnreached = (currentStageIdx !== -1 && i > currentStageIdx);
+
+            if (isDownstreamUnreached) {
+                // Requirement 2: Downstream unreached stage (like FAT or Ready for Shipment in 2027)
+                // Has not been reached yet; past forecast date typos (e.g. 2025/early 2026) must NOT cause delay!
                 stageInfo.status = 'upcoming';
-            }
+                stageInfo.delayDays = 0;
 
-            // First non-completed stage = current stage
-            if (!currentStage) {
-                currentStage = stageInfo;
-                currentStageStatus = stageInfo.status;
-            }
-        } else if (stage.plan) {
-            totalStages++;
-            // Only plan date, no forecast or actual
-            if (stage.plan < today) {
-                // Plan date passed, no forecast or actual → treat as delayed
-                stageInfo.status = 'delayed';
-                stageInfo.delayDays = dateDiffDays(stage.plan, today);
-                delayedStages.push(stageInfo);
-                if (stageInfo.delayDays > maxDelay) maxDelay = stageInfo.delayDays;
-            } else if (stage.plan <= lookaheadEnd) {
-                stageInfo.status = 'atrisk';
-                atRiskStages.push(stageInfo);
-            }
+                // Check genuine forward forecast slip (only if forecast is in the future)
+                if (stage.plan && stage.forecast && stage.forecast > today && stage.forecast > stage.plan) {
+                    stageInfo.forecastSlipDays = dateDiffDays(stage.plan, stage.forecast);
+                }
+            } else if (i === currentStageIdx) {
+                // Active current stage (Requirement 3, Point 3 in Snap 2)
+                currentStageInfo = stageInfo;
 
-            if (!currentStage) {
-                currentStage = stageInfo;
-                currentStageStatus = stageInfo.status;
+                if (stage.forecast) {
+                    if (stage.forecast < today) {
+                        // Forecast has passed without completion -> OVERDUE
+                        stageInfo.status = 'delayed';
+                        stageInfo.delayDays = dateDiffDays(stage.forecast, today);
+                        delayedStages.push(stageInfo);
+                        if (stageInfo.delayDays > maxDelay) maxDelay = stageInfo.delayDays;
+                    } else if (stage.forecast <= lookaheadEnd) {
+                        // Due within 7 days
+                        stageInfo.status = 'atrisk';
+                        atRiskStages.push(stageInfo);
+                        stageInfo.dueInDays = dateDiffDays(today, stage.forecast);
+                    } else {
+                        // Forecast is in the future (> lookaheadEnd)
+                        // Requirement 3: Capture forecast slip vs planned date
+                        if (stage.plan && stage.forecast > stage.plan) {
+                            stageInfo.status = 'fcst_slip';
+                            stageInfo.forecastSlipDays = dateDiffDays(stage.plan, stage.forecast);
+                        } else {
+                            stageInfo.status = 'upcoming';
+                        }
+                    }
+                } else if (stage.plan) {
+                    if (stage.plan < today) {
+                        stageInfo.status = 'delayed';
+                        stageInfo.delayDays = dateDiffDays(stage.plan, today);
+                        delayedStages.push(stageInfo);
+                        if (stageInfo.delayDays > maxDelay) maxDelay = stageInfo.delayDays;
+                    } else if (stage.plan <= lookaheadEnd) {
+                        stageInfo.status = 'atrisk';
+                        atRiskStages.push(stageInfo);
+                    } else {
+                        stageInfo.status = 'upcoming';
+                    }
+                }
+            } else {
+                // Intermediate stage prior to current active stage that lacked actual date (e.g. PO Issued)
+                if (stage.forecast && stage.forecast < today) {
+                    stageInfo.status = 'delayed';
+                    stageInfo.delayDays = dateDiffDays(stage.forecast, today);
+                    delayedStages.push(stageInfo);
+                    if (stageInfo.delayDays > maxDelay) maxDelay = stageInfo.delayDays;
+                } else {
+                    stageInfo.status = 'upcoming';
+                }
             }
         }
 
         stage._computed = stageInfo;
     }
 
-    // Overall package status
-    let overallStatus;
-    if (delayedStages.length > 0) {
-        overallStatus = 'delayed';
+    // 4. Latest Status based on (1) - the latest completed milestone (Requirement 1 & 3):
+    // If completed without delay, the package latest status should NOT be delay!
+    let latestStatus = 'ontrack';
+    let latestStatusText = 'On Track';
+    let latestStageName = latestCompletedStage ? latestCompletedStage.name : null;
+
+    if (completedStages === totalStages && totalStages > 0) {
+        latestStatus = 'completed';
+        latestStatusText = 'All Stages Completed';
+    } else if (latestCompletedStage && latestCompletedStage._computed) {
+        if (latestCompletedStage._computed.delayDays > 0) {
+            latestStatus = 'delayed';
+            latestStatusText = `Delayed (+${latestCompletedStage._computed.delayDays}d at ${abbreviateStage(latestCompletedStage.name)})`;
+        } else {
+            latestStatus = 'ontrack';
+            latestStatusText = `On Track (${abbreviateStage(latestCompletedStage.name)} completed on time)`;
+        }
+    } else if (delayedStages.length > 0) {
+        latestStatus = 'delayed';
     } else if (atRiskStages.length > 0) {
-        overallStatus = 'atrisk';
-    } else if (completedStages === totalStages && totalStages > 0) {
-        overallStatus = 'completed';
-    } else {
-        overallStatus = 'ontrack';
+        latestStatus = 'atrisk';
+    }
+
+    // Overall status shown in main table (4)
+    const overallStatus = latestStatus;
+
+    // 5. Build Forecast Status note for (3)
+    let forecastStatusNote = '';
+    let forecastStatusClass = '';
+    if (currentStageInfo) {
+        if (currentStageInfo.forecastSlipDays > 0) {
+            forecastStatusNote = `+${currentStageInfo.forecastSlipDays}d Fcst Slip`;
+            forecastStatusClass = 'amber';
+        } else if (currentStageInfo.status === 'atrisk') {
+            const dueDays = currentStageInfo.dueInDays !== undefined ? currentStageInfo.dueInDays : dateDiffDays(today, currentStageInfo.forecast);
+            forecastStatusNote = `Due in +${dueDays}d`;
+            forecastStatusClass = 'amber';
+        } else if (currentStageInfo.status === 'delayed') {
+            forecastStatusNote = `Overdue (+${currentStageInfo.delayDays}d)`;
+            forecastStatusClass = 'red';
+        } else if (currentStageInfo.forecast) {
+            forecastStatusNote = `Fcst: ${formatDate(currentStageInfo.forecast)}`;
+            forecastStatusClass = 'blue';
+        }
     }
 
     return {
         overallStatus,
-        currentStage: currentStage ? currentStage.name : '—',
-        currentStageStatus,
+        latestStatus,
+        latestStatusText,
+        latestStageName,
+        currentStage: currentStageInfo ? currentStageInfo.name : (latestCompletedStage ? `Next after ${latestCompletedStage.name}` : '—'),
+        currentStageInfo,
+        forecastStatusNote,
+        forecastStatusClass,
         totalStages,
         completedStages,
         delayedCount: delayedStages.length,
@@ -211,7 +315,7 @@ function computePackageFloat(pkg, today) {
     }
 
     const durationDays = (pkg.delivery_duration_days !== null && pkg.delivery_duration_days !== undefined) ?
-                         Number(pkg.delivery_duration_days) : null;
+                         Math.round(Number(pkg.delivery_duration_days)) : null;
     const rosDate = pkg.ros_date || null;
     const staticFloat = (pkg.float_days !== null && pkg.float_days !== undefined) ? Number(pkg.float_days) : null;
 
@@ -475,8 +579,11 @@ function renderTable(packages) {
             </td>
             <td style="color: var(--text-primary); font-weight: 500;">${escHtml(pkg.package_name)}</td>
             <td>${escHtml(pkg.rfq_no)}</td>
-            <td><span class="status-badge ${s.overallStatus}"><span class="status-dot"></span>${statusLabel(s.overallStatus)}</span></td>
-            <td>${escHtml(s.currentStage)}</td>
+            <td><span class="status-badge ${s.overallStatus}" title="${escHtml(s.latestStatusText || '')}"><span class="status-dot"></span>${statusLabel(s.overallStatus)}</span></td>
+            <td>
+                <div style="font-weight: 500;">${escHtml(s.currentStage)}</div>
+                ${s.forecastStatusNote ? `<div class="fcst-pill ${s.forecastStatusClass}">${escHtml(s.forecastStatusNote)}</div>` : ''}
+            </td>
             <td title="${escHtml(delayText)}">${escHtml(delayText)}</td>
             <td style="text-align: right;">${formatFloatBadge(pkg._float)}</td>
             <td style="text-align: right;">${s.maxDelay > 0 ? `<span class="delay-value negative">${s.maxDelay}d</span>` : '<span class="delay-value zero">—</span>'}</td>
@@ -514,7 +621,8 @@ function renderDetailContent(pkg) {
 
         let delivInfo = f.deliveryDate ? `Est. Delivery: <b>${formatDate(f.deliveryDate)}</b>` : '';
         let rosInfo = f.rosDate ? `Required On Site (ROS): <b>${formatDate(f.rosDate)}</b>` : '';
-        let durInfo = f.deliveryDurationDays ? `Lead Time: <b>${f.deliveryDurationDays}d</b>` : '';
+        const cleanLeadTime = (f.deliveryDurationDays !== null && f.deliveryDurationDays !== undefined) ? Math.round(Number(f.deliveryDurationDays)) : null;
+        let durInfo = cleanLeadTime !== null ? `Lead Time: <b>${cleanLeadTime}d</b>` : '';
         let metaDetails = [durInfo, delivInfo, rosInfo].filter(Boolean).join(' &nbsp;•&nbsp; ');
 
         floatCardHtml = `
@@ -556,11 +664,21 @@ function renderDetailContent(pkg) {
         const c = stage._computed;
         const dateToShow = c.actual || c.forecast || c.plan || '';
 
+        let badgeHtml = '';
+        if (c.delayDays > 0 && c.status === 'delayed') {
+            badgeHtml = `<div class="stage-delay-badge">${c.delayDays}d</div>`;
+        } else if (c.status === 'atrisk') {
+            const dueDays = (c.dueInDays !== undefined && c.dueInDays !== null) ? c.dueInDays : dateDiffDays(today, c.forecast);
+            badgeHtml = `<div class="stage-delay-badge" style="background: var(--status-atrisk); color: #1a1a1a;">+${dueDays}d</div>`;
+        } else if (c.status === 'fcst_slip' && c.forecastSlipDays > 0) {
+            badgeHtml = `<div class="stage-delay-badge">+${c.forecastSlipDays}d</div>`;
+        }
+
         pipelineHtml += `
-        <div class="pipeline-stage stage-${c.status}" title="${c.name}\nPlan: ${formatDate(c.plan)}\nForecast: ${formatDate(c.forecast)}\nActual: ${formatDate(c.actual)}${c.delayDays > 0 ? '\nDelay: ' + c.delayDays + ' days' : ''}">
+        <div class="pipeline-stage stage-${c.status}" title="${c.name}\nPlan: ${formatDate(c.plan)}\nForecast: ${formatDate(c.forecast)}\nActual: ${formatDate(c.actual)}${c.delayDays > 0 ? '\nDelay: ' + c.delayDays + ' days' : ''}${c.forecastSlipDays > 0 ? '\nForecast Slip: +' + c.forecastSlipDays + ' days' : ''}">
             <div class="stage-name">${abbreviateStage(c.name)}</div>
             <div class="stage-date">${formatDate(dateToShow)}</div>
-            ${c.delayDays > 0 && (c.status === 'delayed' || c.status === 'atrisk') ? `<div class="stage-delay-badge">${c.delayDays}d</div>` : ''}
+            ${badgeHtml}
         </div>`;
     }
     pipelineHtml += '</div>';
@@ -592,7 +710,20 @@ function renderDetailContent(pkg) {
         if (!stage._computed) continue;
         const c = stage._computed;
         const rowCls = c.status === 'delayed' ? 'stage-delayed-row' : 
-                       c.status === 'atrisk' ? 'stage-atrisk-row' : '';
+                       c.status === 'atrisk' ? 'stage-atrisk-row' :
+                       c.status === 'fcst_slip' ? 'stage-fcst-slip-row' : '';
+
+        let delayCellHtml = '—';
+        if (c.status === 'completed') {
+            delayCellHtml = c.delayDays > 0 ? `<span class="delay-value negative">${c.delayDays}d</span>` : '—';
+        } else if (c.status === 'fcst_slip') {
+            delayCellHtml = `<span class="delay-value negative">+${c.forecastSlipDays}d (fcst)</span>`;
+        } else if (c.status === 'delayed') {
+            delayCellHtml = `<span class="delay-value negative">${c.delayDays}d</span>`;
+        } else if (c.status === 'atrisk') {
+            const dueDays = (c.dueInDays !== undefined && c.dueInDays !== null) ? c.dueInDays : dateDiffDays(today, c.forecast);
+            delayCellHtml = `<span class="delay-value" style="color: var(--status-atrisk); font-weight: 700;">+${dueDays}d</span>`;
+        }
 
         stageTableHtml += `
             <tr class="${rowCls}">
@@ -601,7 +732,7 @@ function renderDetailContent(pkg) {
                 <td>${formatDate(c.forecast)}</td>
                 <td>${formatDate(c.actual)}</td>
                 <td><span class="status-badge ${c.status}"><span class="status-dot"></span>${statusLabel(c.status)}</span></td>
-                <td>${c.delayDays > 0 ? `<span class="delay-value negative">${c.delayDays}d</span>` : c.delayDays === 0 ? '—' : `<span class="delay-value positive">${Math.abs(c.delayDays)}d ahead</span>`}</td>
+                <td>${delayCellHtml}</td>
             </tr>`;
     }
     stageTableHtml += '</tbody></table>';
@@ -618,6 +749,7 @@ function statusLabel(status) {
         ontrack: 'On Track',
         completed: 'Completed',
         upcoming: 'Upcoming',
+        fcst_slip: 'Forecast Slip',
         ignored: 'Ignored',
     };
     return labels[status] || status;

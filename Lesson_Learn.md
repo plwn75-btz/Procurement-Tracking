@@ -97,6 +97,35 @@ During the implementation and cloud deployment (Render) of the **Procurement Tra
   5. **Unit Resilience (Weeks vs. Days):** Source spreadsheets alternate between weeks (Col 36/37) and days (Col 37/38). The parser checks for explicit day duration, falls back to $(\text{weeks} \times 7)$, and falls back to explicit delivery/ETA dates if duration numbers are blank.
   6. **Table Sorting Prioritization:** Provide a dedicated `Sort: Lowest Float (Critical First)` option in the UI so project controls can immediately filter and identify packages where overdue PO awards are threatening the offshore installation schedule.
 
+### 2.10. Non-Vendor Yard Fabrication Items & Date Entry Typo Risks (Cut `20260828`)
+- **The Challenge:** In the August 28 cut (`Attachment 1 - Procurement Plan-Z1F_20260828.xlsx`), the dashboard suddenly displayed 140 packages (up from 115) and hoisted 5 unexpected items to the very top with massive negative floats of `-323,431 days`.
+- **Root Cause Analysis:** Non-vendor yard sub-assemblies tagged with Plan rows and year 2912 dates.
+
+### 2.11. Downstream Unreached Stages & Past Date Typo Guard (Cut `20261002` - FAT & Ready for Shipment)
+- **The Challenge:** In the October 02 cut (`Attachment 2-Procurement Plan-ASK-20261002 R3.xlsx`), `Check Valve (Flange End)` (`RFQ-PIP-052`) and several other valve/instrumentation packages suddenly showed critical delays of **`288 days`** on `FAT` and **`274 days`** on `Ready for Shipment`, inflating package `Max Delay` to `288d` and polluting `Delayed Stages`.
+- **Root Cause:** In the source Excel, the planner entered stale/placeholder dates from late 2025/early 2026 (`2025-12-25` for FAT and `2026-01-08` for Ready for Shipment), while their planned milestone dates were in **February 2027** (`2027-02-11` and `2027-02-25`). The legacy logic evaluated `forecast < today` independently across every stage, ignoring workflow sequence:
+  1. The package was currently at Step 16 (`Approval of Key VD`), with Steps 17–19 (`Delivery of Major Materials`, `PIM`, `Start Production`) still upcoming in Nov/Dec 2026.
+  2. Downstream inspection (FAT) and shipping cannot be late in the past when upstream fabrication has not even started!
+- **Engineering Resolution:**
+  - Implemented an **Unreached Downstream Stage Guard** in `computePackageStatus(pkg)` (`app.js`).
+  - Identified the active milestone index (`currentStageIdx`). For any stage sequentially *after* `currentStageIdx` where `plan > today`, past forecast date typos (`< today`) are treated as invalid past artifacts rather than delays.
+  - Locked unreached downstream status to **`● Upcoming`** with `delayDays = 0`, successfully eliminating false `288d` delays across all packages.
+
+### 2.12. Latest Completed Milestone Status (at (1)) vs. Active Forecast Slip (at (3))
+- **The Challenge:** In `Check Valve (Flange End)`, the latest executed stage **`VD Submission`** (`Actual: 2 Sep 26` vs `Plan: 21 Sep 26`) completed **19 days early without delay**. However, the main table `STATUS` column displayed `● Delayed` due to upstream uncompleted actuals and downstream typos. Furthermore, the active stage **`Approval of Key VD`** had slipped from `5 Oct 26` to `18 Nov 26` (+44 days), but was masked as simply `● Upcoming`.
+- **Engineering Resolution:**
+  1. **Latest Execution Status:** Package status in the main table column now maps directly to the latest completed milestone (`latestCompletedStage`). If completed on-time/early, the status is **`● On Track`** (Green).
+  2. **Active Forecast Slip Tracking:** If the active in-progress stage has a forecast date later than planned (`forecast > plan`), the dashboard displays a prominent **`● Forecast Slip`** badge in the stage table and an amber **`+44d Fcst Slip`** pill in the main table `Current Stage` column.
+  3. **Max Delay Preservation:** The `Max Delay` column (in yellow tabular digits) is retained, displaying true historical completed or active delays (e.g., `19d` from `TBE Approved`) without bogus downstream numbers.
+
+### 2.13. Lookahead Due Horizon (+Nd) vs. Forecast Slip & Floating-Point Duration Precision
+- **The Challenge:** In `Piggable Wye` (`RFQ-PLR-087`, ASK), `PO Issued` is in the 7-day lookahead window (`● Due Soon`, forecast `13 Oct 26` vs Today `9 Oct 26`). The stage table previously showed `+40d (fcst)` (calculating forecast slip vs plan `3 Sep 26`). Additionally, Lead Time displayed with floating-point decimals (`90.00000000000003d`).
+- **Engineering Resolution:**
+  1. **Due Horizon for At-Risk Stages:** When a milestone is `● Due Soon` (`atrisk`), the Delay column represents the remaining days until the forecast milestone from `Today`:
+     $$\text{Days Remaining} = \text{Forecast Date} - \mathbf{Today} = 13\text{ Oct }26 - 9\text{ Oct }26 = \mathbf{+4\text{ days}}$$
+     Both the stage detail table and the pipeline box now display **`+4d`**.
+  2. **Integer Duration Formatting:** Added `Math.round(Number(f.deliveryDurationDays))` in frontend rendering and `int(round(float(val)))` in `server.py` to ensure Lead Time displays cleanly as **`90d`** without decimal digits.
+
 ---
 
 ## 3. Summary of Pitfalls vs. Resolutions Table
@@ -112,6 +141,10 @@ During the implementation and cloud deployment (Render) of the **Procurement Tra
 | 7 | Dashboard showing 0 packages after file upload | Source Excel changed terminology from "Plan" to "New Plan" (e.g., `Attachment 2-...-20260726 R1.xlsx`) | Added `"NEW PLAN": "Plan"` to the `pfa_values` mapping in `server.py` and verified package counts via CLI. |
 | 8 | Stale positive float shown when PO is overdue | Static Excel formula calculated from passed PO date | Automatically set baseline to `Today` when `Forecast PO < Today` and `Actual PO` is blank, dynamically eroding float day-by-day. |
 | 9 | Inconsistent column names & whitespace (`Float `, `Lead Time`, `days`) | Trailing spaces in headers or different project naming conventions | Implemented case-insensitive, stripped alias detection in `auto_detect_columns` in `server.py` with multi-key fallbacks. |
+| 10 | Non-vendor items & `-323431d` float at top of table | Yard fabrication sub-items tagged with `P` and year `2912` date typos in Excel cut `20260828` | Identified Excel source cause (Rows 394-414); prepared options for Excel correction or parser filtering (MR requirement / date cap). |
+| 11 | Unreached 2027 downstream stages flagged with 288d delay | Past date typos in Excel for FAT/Shipment evaluated independently against `Today` | Implemented downstream unreached stage guard: stages after active stage where `plan > today` locked to `Upcoming` with `0d` delay. |
+| 12 | Package status `Delayed` even though latest milestone on time | Status decoupled from latest execution milestone | Aligned main table `STATUS` to latest completed milestone (e.g. `VD Submission` on-time &rarr; `● On Track`). Preserved `Max Delay` column. |
+| 13 | Lookahead milestone showing `+40d (fcst)` & float decimals | Rendered historical slip instead of lookahead horizon; floating-point duration precision | Due Soon stages now display remaining days from Today (`+4d`). Lead time rounded to integer (`90d`). |
 
 ---
 
@@ -120,3 +153,4 @@ During the implementation and cloud deployment (Render) of the **Procurement Tra
 1. **Automated End-to-End Cypress / Playwright Tests:** Add automated browser testing for file drag-and-drop and modal interactions to catch styling or script reference breaks prior to cloud deployment.
 2. **Persistent Storage Mounts on Cloud Platforms:** Note that ephemeral container hosting on Render (`render.yaml`) resets disk space upon container restarts. If permanent multi-year historical storage of Excel files is required across restarts, attach a persistent disk volume on Render or integrate cloud object storage (AWS S3 / Google Cloud Storage).
 3. **Structured Logging:** Keep `logging.basicConfig(level=logging.INFO)` in `server.py` and output timestamped audit logs whenever a file is uploaded (`[UPLOAD] User uploaded Attachment 1-... at 2026-07-12 18:30:00`).
+4. **Power BI Decoupling & Manual Git Workflow:** Per user operational policy, Power BI execution is bypassed in favor of the standalone Python/Vanilla JS web application. All Git commits and GitHub synchronization are executed manually by the user.
